@@ -96,7 +96,7 @@ class GittyupClient:
             f.close()
 
     def _get_index(self):
-        if not self.repo.has_index():
+        if self.repo.has_index() == False:
             self._initialize_index()
         
         return self.repo.open_index()
@@ -355,11 +355,17 @@ class GittyupClient:
         if not os.path.isdir(path):
             os.mkdir(path)
 
+        cmd = ["git", "init"]
+        
         if bare:
-            dulwich.repo.Repo.init_bare(path)
-        else:
-            dulwich.repo.Repo.init(path)
-        self.set_repository(path)
+            cmd.append("--bare")
+        
+        cmd.append(path)
+
+        try:
+            (status, stdout, stderr) = GittyupCommand(cmd, cwd=path, notify=self.notify, cancel=self.get_cancel).execute()
+        except GittyupCommandError, e:
+            self.callback_notify(e)
 
     def set_repository(self, path):
         try:
@@ -416,8 +422,8 @@ class GittyupClient:
         @param  paths: A list of files
         
         """
+
         index = self._get_index()
-        to_stage = []
 
         if type(paths) in (str, unicode):
             paths = [paths]
@@ -425,14 +431,26 @@ class GittyupClient:
         for path in paths:
             relative_path = self.get_relative_path(path)
             absolute_path = self.get_absolute_path(path)
+            blob = self._get_blob_from_file(absolute_path)
+            
+            if relative_path in index:
+                (ctime, mtime, dev, ino, mode, uid, gid, size, blob_id, flags) = index[relative_path]
+            else:
+                flags = 0
+
+            # make sure mtime and ctime is updated every time a file is staged
+            (mode, ino, dev, nlink, uid, gid, size, atime, mtime, ctime) = os.stat(path)
+
+            index[relative_path] = (ctime, mtime, dev, ino, mode, uid, gid, size, blob.id, flags)
+            index.write()
 
             self.notify({
                 "action": "Staged",
                 "path": absolute_path,
                 "mime_type": guess_type(absolute_path)[0]
             })
-            to_stage.append(path)
-        self.repo.stage(to_stage)
+
+            self.repo.object_store.add_object(blob)
     
     def stage_all(self):
         """
@@ -575,10 +593,7 @@ class GittyupClient:
         cmd = ["git", "branch"]
         if track:
             cmd.append("-t")
-
-        if commit_sha is None:
-            commit_sha = self.repo.head()
-
+        
         cmd += [name, commit_sha]
 
         try:
@@ -726,7 +741,7 @@ class GittyupClient:
         base_dir = os.path.split(path)[0]
     
         cmd = ["git", "clone", host, path] + more
-        
+
         isUsername = False
         isPassword = False
         self.modifiedHost = host
@@ -959,7 +974,7 @@ class GittyupClient:
         isPassword = False
 
         try:
-            (status, stdout, stderr) = GittyupCommand(cmd, cwd=self.repo.path, notify=self.notify_and_parse_git_push, cancel=self.get_cancel).execute()
+            (status, stdout, stderr) = GittyupCommand(cmd, cwd=self.repo.path, notify=self.notify_and_parse_git_pull, cancel=self.get_cancel).execute()
             if stdout[0].find('could not read Username') > -1:
                 # Prompt for username if it does not exist in the url.
                 isUsername, originalRemoteUrl = self.promptUsername(remoteKey)
@@ -981,7 +996,7 @@ class GittyupClient:
             # Write original url back to config.
             self.config.set(remoteKey, "url", originalRemoteUrl)
             self.config.write()
-
+    
     def push(self, repository="origin", refspec="master", tags=True):
         """
         Push objects from the local repository into the remote repository
@@ -995,16 +1010,16 @@ class GittyupClient:
         
         @type   tags: boolean
         @param  tags: True to include tags in push, False to omit
-
+        
         """
 
         self.numberOfCommandStages = 2
-        
+
         cmd = ["git", "push", "--progress"]
         if tags:
             cmd.extend(["--tags"])
         cmd.extend([repository, refspec])
-
+        
         # Setup the section name in the config for the remote target.
         remoteKey = "remote \"" + repository + "\""
         isUsername = False
@@ -1608,7 +1623,7 @@ class GittyupClient:
     def log(self, path="", skip=0, limit=None, revision="", showtype="all"):
         
         cmd = ["git", "--no-pager", "log", "--numstat", "--parents", "--pretty=fuller", 
-            "--date-order", "--date=default"]
+            "--date-order"]
 
         if showtype == "all":
             cmd.append("--all")
