@@ -987,7 +987,7 @@ class GittyupClient:
 
             if isUsername == True or isPassword == True:
                 # Try again.
-                (status, stdout, stderr) = GittyupCommand(cmd, cwd=self.repo.path, notify=self.notify_and_parse_git_push, cancel=self.get_cancel).execute()
+                (status, stdout, stderr) = GittyupCommand(cmd, cwd=self.repo.path, notify=self.notify_and_parse_git_pull, cancel=self.get_cancel).execute()
         except GittyupCommandError, e:
             self.callback_notify(e)
 
