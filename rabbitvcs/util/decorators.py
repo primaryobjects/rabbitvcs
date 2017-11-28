@@ -32,6 +32,15 @@ See:
   - http://wiki.python.org/moin/PythonDecoratorLibrary
   
 """
+from __future__ import absolute_import
+
+import os
+
+if "NAUTILUS_PYTHON_REQUIRE_GTK3" in os.environ and os.environ["NAUTILUS_PYTHON_REQUIRE_GTK3"]:
+    from gi.repository import Gtk as gtk
+else:
+    import gtk
+    gtk.gdk.threads_init()
 
 import time
 import warnings

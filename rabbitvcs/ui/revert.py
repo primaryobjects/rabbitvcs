@@ -1,3 +1,4 @@
+from __future__ import absolute_import
 #
 # This is an extension to the Nautilus file manager to allow better 
 # integration with the Subversion source control system.
@@ -21,7 +22,7 @@
 #
 
 import os
-import thread
+import six.moves._thread
 from time import sleep
 
 import pygtk
@@ -43,8 +44,7 @@ log = Log("rabbitvcs.ui.revert")
 from rabbitvcs import gettext
 _ = gettext.gettext
 
-gtk.gdk.threads_init()
-
+gobject.threads_init()
 
 import rabbitvcs.vcs
 
@@ -130,8 +130,8 @@ class Revert(InterfaceView, GtkContextMenuCaller):
         """
 
         try:
-            thread.start_new_thread(self.load, ())
-        except Exception, e:
+            six.moves._thread.start_new_thread(self.load, ())
+        except Exception as e:
             log.exception(e)
 
     def on_select_all_toggled(self, widget):

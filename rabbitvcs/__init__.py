@@ -1,3 +1,4 @@
+from __future__ import absolute_import
 #
 # This is an extension to the Nautilus file manager to allow better 
 # integration with the Subversion source control system.
@@ -28,10 +29,10 @@ from locale import getdefaultlocale
 try:
     import mercurial.demandimport
     mercurial.demandimport.enable = lambda: None
-except Exception, e:
+except Exception as e:
     pass
 
-version = "0.16.1"
+version = "0.17.0"
 APP_NAME = "RabbitVCS"
 TEMP_DIR_PREFIX = "rabbitvcs-"
 LOCALE_DIR = "%s/locale" % os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -88,7 +89,7 @@ def package_prefix():
     try:
         from rabbitvcs.buildinfo import rabbitvcs_prefix
         return rabbitvcs_prefix
-    except ImportError, e:
+    except ImportError as e:
         return ""
 
 def get_icon_path():
@@ -100,5 +101,5 @@ def get_icon_path():
     try:
         from rabbitvcs.buildinfo import icon_path
         return icon_path
-    except ImportError, e:
+    except ImportError as e:
         return "%s/data/icons/hicolor" % os.path.dirname(os.path.dirname(os.path.realpath(__file__)))

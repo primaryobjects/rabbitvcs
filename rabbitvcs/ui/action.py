@@ -21,6 +21,7 @@
 #
 
 from __future__ import division
+from __future__ import absolute_import
 import threading
 
 from os.path import basename
@@ -42,7 +43,7 @@ from rabbitvcs.util.decorators import gtk_unsafe
 from rabbitvcs import gettext
 _ = gettext.gettext
 
-gtk.gdk.threads_init()
+gobject.threads_init()
 
 from rabbitvcs.util.log import Log
 log = Log("rabbitvcs.ui.action")
@@ -633,10 +634,11 @@ class VCSAction(threading.Thread):
 
     def run_single(self, func, *args, **kwargs):
         try:
-            returner = func(*args, **kwargs)
-        except Exception, e:
-            self.__queue_exception_callback(e)
-            returner = None
+            try:
+                returner = func(*args, **kwargs)
+            except Exception as e:
+                self.__queue_exception_callback(e)
+                returner = None
         finally:
             self.stop()
 
@@ -688,7 +690,7 @@ class SVNAction(VCSAction):
                 self.notification.pbar.update(frac)
 
             is_known_action = False
-            if self.client.NOTIFY_ACTIONS.has_key(data["action"]):
+            if data["action"] in self.client.NOTIFY_ACTIONS:
                 action = self.client.NOTIFY_ACTIONS[data["action"]]
                 is_known_action = True
             else:

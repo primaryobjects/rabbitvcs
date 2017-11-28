@@ -1,3 +1,4 @@
+from __future__ import absolute_import
 #
 # This is an extension to the Nautilus file manager to allow better 
 # integration with the Subversion source control system.
@@ -21,7 +22,7 @@
 #
 
 import os.path
-import thread
+import six.moves._thread
 
 import pygtk
 import gobject
@@ -36,11 +37,12 @@ import rabbitvcs.util.helper
 import rabbitvcs.vcs
 
 from rabbitvcs import gettext
+import six
 _ = gettext.gettext
 
 DATETIME_FORMAT = rabbitvcs.util.helper.DT_FORMAT_THISWEEK
 
-gtk.gdk.threads_init()
+gobject.threads_init()
 
 class Push(InterfaceView):
     def __init__(self, path):
@@ -79,6 +81,9 @@ class GitPush(Push):
             }
         )
         
+        # Set default for Include Tags checkbox.
+        self.get_widget("tags").set_active(True)
+
         self.initialize_logs()
 
     def on_ok_clicked(self, widget, data=None):
@@ -86,6 +91,7 @@ class GitPush(Push):
     
         repository = self.repository_selector.repository_opt.get_active_text()
         branch = self.repository_selector.branch_opt.get_active_text()
+        tags = self.get_widget("tags").get_active()
         
         self.action = rabbitvcs.ui.action.GitAction(
             self.git,
@@ -93,7 +99,7 @@ class GitPush(Push):
         )
         self.action.append(self.action.set_header, _("Push"))
         self.action.append(self.action.set_status, _("Running Push Command..."))
-        self.action.append(self.git.push, repository, branch)
+        self.action.append(self.git.push, repository, branch, tags)
         self.action.append(self.action.set_status, _("Completed Push"))
         self.action.append(self.action.finish)
         self.action.start()
@@ -104,8 +110,8 @@ class GitPush(Push):
         """
         
         try:
-            thread.start_new_thread(self.load_logs, ())
-        except Exception, e:
+            six.moves._thread.start_new_thread(self.load_logs, ())
+        except Exception as e:
             log.exception(e)
 
     def load_logs(self):
@@ -114,29 +120,22 @@ class GitPush(Push):
 
         gtk.gdk.threads_leave()
 
-        self.load_local_log()
-        self.load_remote_log()
+        self.load_push_log()
 
         gtk.gdk.threads_enter()
         self.get_widget("status").set_text("")
         self.update_widgets()
         gtk.gdk.threads_leave()
-
-    def load_local_log(self):
-        branch = self.repository_selector.branch_opt.get_active_text()
-        refspec = "refs/heads/%s" % branch
-        self.local_log = self.git.log(revision=self.git.revision(refspec), limit=10, showtype="branch")
         
-    def load_remote_log(self):
+    def load_push_log(self):
         repository = self.repository_selector.repository_opt.get_active_text()
         branch = self.repository_selector.branch_opt.get_active_text()
 
         refspec = "refs/remotes/%s/%s" % (repository, branch)
-        self.remote_log = self.git.log(revision=self.git.revision(refspec), limit=10, showtype="branch")
+        self.push_log = self.git.log(revision=self.git.revision(refspec), showtype="push")
 
     def on_branch_changed(self, repository, branch):
-        self.load_local_log()
-        self.load_remote_log()
+        self.load_push_log()
         self.update_widgets()
 
     def update_widgets(self):
@@ -150,20 +149,12 @@ class GitPush(Push):
             return
 
         has_commits = False
-        for item in self.local_log:
-            remote_log_item = None
-            if self.remote_log:
-                remote_log_item = self.remote_log[0]
-
-            if (remote_log_item is None or
-                    unicode(remote_log_item.revision) != unicode(item.revision)):
-                self.log_table.append([
-                    rabbitvcs.util.helper.format_datetime(item.date),
-                    rabbitvcs.util.helper.format_long_text(item.message.rstrip("\n"))
-                ])
-                has_commits = True
-            else:
-                break
+        for item in self.push_log:
+            self.log_table.append([
+                rabbitvcs.util.helper.format_datetime(item.date),
+                rabbitvcs.util.helper.format_long_text(item.message.rstrip("\n"))
+            ])
+            has_commits = True
 
         self.get_widget("ok").set_sensitive(True)
         if not has_commits:

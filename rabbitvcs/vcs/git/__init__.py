@@ -23,12 +23,13 @@
 """
 Concrete VCS implementation for Git functionality.
 """
+from __future__ import absolute_import
 
 import os.path
 from datetime import datetime
 
-from gittyup.client import GittyupClient
-import gittyup.objects
+from .gittyup.client import GittyupClient
+from .gittyup import objects
 
 import rabbitvcs.util.helper
 
@@ -37,6 +38,7 @@ import rabbitvcs.vcs.status
 import rabbitvcs.vcs.log
 from rabbitvcs.vcs.branch import BranchEntry
 from rabbitvcs.util.log import Log
+import six
 
 log = Log("rabbitvcs.vcs.git")
 
@@ -60,13 +62,13 @@ class Revision:
 
     def __unicode__(self):
         if self.value:
-            return unicode(self.value)
+            return six.text_type(self.value)
         else:
             return self.kind
             
     def short(self):
         if self.value:
-            return unicode(self.value)[0:7]
+            return six.text_type(self.value)[0:7]
         else:
             return self.kind
 
@@ -181,10 +183,17 @@ class Git:
                 # so we need to convert the path to an absolute path
                 st.path = self.client.get_absolute_path(st.path)
 
+                # If not recursing, only return the item in question (if a file)
+                # or items directly under the path (if a directory)
+                cmp_path = os.path.join(path, os.path.basename(st.path))
+                if not recurse and cmp_path != st.path and st.path != path:
+                    continue
+
                 rabbitvcs_status = rabbitvcs.vcs.status.GitStatus(st)
                 self.cache[st.path] = rabbitvcs_status
                 
                 statuses.append(rabbitvcs_status)
+            
             return statuses
     
     def status(self, path, summarize=True, invalidate=False):
@@ -234,7 +243,7 @@ class Git:
         st = self.status(path)
         try:
             return st.is_versioned()
-        except Exception, e:
+        except Exception as e:
             log.error(e)
             return False
 
@@ -263,7 +272,7 @@ class Git:
         
         items = []
         for path in paths:
-            st = self.statuses(path, invalidate=True)
+            st = self.statuses(path, recurse=True, invalidate=True)
             for st_item in st:
                 if st_item.content == "modified" and os.path.isdir(st_item.path):
                     continue
@@ -576,7 +585,7 @@ class Git:
         
         return self.client.pull(repository, refspec, options)
 
-    def push(self, repository="origin", refspec="master"):
+    def push(self, repository="origin", refspec="master", tags=True):
         """
         Push objects from the local repository into the remote repository
             and merge them.
@@ -587,21 +596,37 @@ class Git:
         @type   refspec: string
         @param  refspec: The branch name to pull from
         
+        @type   tags: boolean
+        @param  tags: True to include tags in push, False to omit
+
         """
 
-        return self.client.push(repository, refspec)
+        return self.client.push(repository, refspec, tags)
 
-    def fetch(self, host):
+    def fetch_all(self):
+        """
+        Fetch objects from all remote repositories.  This will not merge the files
+        into the local working copy, use pull for that.
+        """
+        
+        return self.client.fetch_all()
+
+    def fetch(self, repository, branch=None):
         """
         Fetch objects from a remote repository.  This will not merge the files
         into the local working copy, use pull for that.
+
+        If branch if provided, fetch only for that branch.
         
-        @type   host: string
-        @param  host: The git url from which to fetch
+        @type   repository: string
+        @param  repository: The git remote from which to fetch
+
+        @type   branch: string
+        @param  branch: The branch from which to fetch
         
         """
         
-        return self.client.fetch(host)
+        return self.client.fetch(repository, branch)
         
     def merge(self, branch):
         return self.client.merge(branch.primitive())

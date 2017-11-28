@@ -23,6 +23,7 @@
 """
 Concrete VCS implementation for Subversion functionality.
 """
+from __future__ import absolute_import
 import subprocess
 import os
 import shutil
@@ -37,6 +38,9 @@ import rabbitvcs.vcs.status
 import rabbitvcs.vcs.log
 import rabbitvcs.util.helper
 from rabbitvcs.util.log import Log
+from six.moves import map
+import six
+from six.moves import range
 
 log = Log("rabbitvcs.vcs.svn")
 
@@ -64,7 +68,7 @@ class Revision:
     }
 
     def __init__(self, kind, value=None):
-        self.kind = unicode(kind).lower()
+        self.kind = six.text_type(kind).lower()
         self.value = value
         self.is_revision_object = True
 
@@ -86,12 +90,12 @@ class Revision:
                 self.__revision = pysvn.Revision(self.__revision_kind, self.value)
             else:
                 self.__revision = pysvn.Revision(self.__revision_kind)
-        except Exception, e:
+        except Exception as e:
             log.exception(e)
 
     def __unicode__(self):
         if self.value:
-            return unicode(self.value)
+            return six.text_type(self.value)
         else:
             return self.kind
 
@@ -129,7 +133,7 @@ class SVN:
         "incomplete"    : pysvn.wc_status_kind.incomplete
     }
 
-    STATUSES_FOR_COMMIT = map(str,
+    STATUSES_FOR_COMMIT = list(map(str,
         [
             pysvn.wc_status_kind.unversioned,
             pysvn.wc_status_kind.added,
@@ -138,28 +142,28 @@ class SVN:
             pysvn.wc_status_kind.modified,
             pysvn.wc_status_kind.missing,
             pysvn.wc_status_kind.obstructed
-        ])
+        ]))
 
-    STATUSES_FOR_REVERT = map(str,
+    STATUSES_FOR_REVERT = list(map(str,
         [
             pysvn.wc_status_kind.missing,
             pysvn.wc_status_kind.added,
             pysvn.wc_status_kind.modified,
             pysvn.wc_status_kind.deleted
-        ])
+        ]))
 
-    STATUSES_FOR_ADD = map(str,
+    STATUSES_FOR_ADD = list(map(str,
         [
             pysvn.wc_status_kind.unversioned,
             pysvn.wc_status_kind.obstructed
-        ])
+        ]))
 
-    STATUSES_FOR_RESOLVE = map(str,
+    STATUSES_FOR_RESOLVE = list(map(str,
         [
             pysvn.wc_status_kind.conflicted
-        ])
+        ]))
 
-    STATUSES_FOR_CHECK = map(str,
+    STATUSES_FOR_CHECK = list(map(str,
         [
             pysvn.wc_status_kind.added,
             pysvn.wc_status_kind.deleted,
@@ -167,7 +171,7 @@ class SVN:
             pysvn.wc_status_kind.modified,
             pysvn.wc_status_kind.missing,
             pysvn.wc_status_kind.conflicted,
-        ])
+        ]))
 
     PROPERTIES = {
         "executable":   "svn:executable",
@@ -255,11 +259,9 @@ class SVN:
         if not self.is_in_a_or_a_working_copy(path):
             return [on_error]
 
-        depth = pysvn.depth.infinity if recurse else pysvn.depth.empty
-
         try:
             pysvn_statuses = self.client.status(path,
-                                                depth=depth,
+                                                depth=pysvn.depth.infinity,
                                                 update=update)
             if not len(pysvn_statuses):
                 # This is NOT in the PySVN documentation, but sometimes it
@@ -268,12 +270,18 @@ class SVN:
             else:
                 statuslist = []
                 for st in pysvn_statuses:
+                    # If not recursing, only return the item in question (if a file)
+                    # or items directly under the path (if a directory)
+                    cmp_path = os.path.join(path, os.path.basename(st.path))
+                    if not recurse and cmp_path != st.path and st.path != path:
+                        continue
+
                     rabbitvcs_status = rabbitvcs.vcs.status.SVNStatus(st)
                     self.cache[st.path] = rabbitvcs_status
                     statuslist.append(rabbitvcs_status)
                     
                 return statuslist
-        except pysvn.ClientError, ex:
+        except pysvn.ClientError as ex:
             # TODO: uncommenting these might not be a good idea
             #~ traceback.print_exc()
             log.debug("Exception occured in SVN.status() for %s" % path)
@@ -336,7 +344,7 @@ class SVN:
                     isdir(os.path.join(path, ".svn"))):
                 return True
             return False
-        except Exception, e:
+        except Exception as e:
             # FIXME: ClientError client in use on another thread
             #~ log.debug("EXCEPTION in is_working_copy(): %s" % str(e))
             return False
@@ -356,7 +364,7 @@ class SVN:
                 if (self.is_in_a_or_a_working_copy(path) and
                         self.client_info(path)):
                     return True
-            except Exception, e:
+            except Exception as e:
                 log.exception("is_versioned exception for %s" % path)
                 
             return False
@@ -364,7 +372,7 @@ class SVN:
     def is_status(self, path, status_kind):
         try:
             status = self.status(path, summarize=False)
-        except Exception, e:
+        except Exception as e:
             log.exception("is_status exception for %s" % path)
             return False
 
@@ -384,7 +392,7 @@ class SVN:
         is_locked = False
         try:
             is_locked = self.client.info2(path, recurse=False)[0][1].lock is not None
-        except pysvn.ClientError, e:
+        except pysvn.ClientError as e:
             return False
             #log.exception("is_locked exception for %s" % path)
 
@@ -424,7 +432,7 @@ class SVN:
         for path in paths:
             try:
                 sts = self.statuses(path, update=True, invalidate=True)
-            except Exception, e:
+            except Exception as e:
                 log.exception(e)
                 continue
 
@@ -467,7 +475,7 @@ class SVN:
         returner = ""
         try:
             returner = info["url"].encode('latin1')
-        except Exception, e:
+        except Exception as e:
             log.exception(e)
 
         return returner
@@ -489,7 +497,7 @@ class SVN:
         returner = ""
         try:
             returner = info[0][1]["repos_root_URL"]
-        except Exception, e:
+        except Exception as e:
             log.exception(e)
 
         return returner
@@ -518,9 +526,9 @@ class SVN:
         returner = None
         try:
             returner = info["commit_revision"].number
-        except KeyError, e:
+        except KeyError as e:
             log.exception("KeyError exception in svn.py get_revision() for %s" % path)
-        except AttributeError, e:
+        except AttributeError as e:
             log.exception("AttributeError exception in svn.py get_revision() for %s" % path)
 
         return returner
@@ -542,9 +550,9 @@ class SVN:
         returner = None
         try:
             returner = info["revision"].number
-        except KeyError, e:
+        except KeyError as e:
             log.exception("KeyError exception in svn.py get_head() for %s" % path)
-        except AttributeError, e:
+        except AttributeError as e:
             log.exception("AttributeError exception in svn.py get_head() for %s" % path)
 
         return returner
@@ -577,7 +585,7 @@ class SVN:
             for rev in revisions.split(','):
                 if rev.find('-') != -1:
                     (rev_s, rev_e) = rev.split('-')
-                    merged_revisions += range(int(rev_s), int(rev_e) + 1)
+                    merged_revisions += list(range(int(rev_s), int(rev_e) + 1))
                 else:
                     merged_revisions.append(int(rev))
 
@@ -655,9 +663,9 @@ class SVN:
                 recurse=recurse
             )
             return True
-        except pysvn.ClientError, e:
+        except pysvn.ClientError as e:
             log.exception("pysvn.ClientError exception in svn.py propset() for %s" % path)
-        except TypeError, e:
+        except TypeError as e:
             log.exception("TypeError exception in svn.py propset() %s" % path)
 
         return False
@@ -716,13 +724,13 @@ class SVN:
                     path,
                     recurse=True
                 )
-        except pysvn.ClientError, e:
+        except pysvn.ClientError as e:
             log.exception("pysvn.ClientError exception in svn.py propget() for %s" % path)
             return ""
 
         try:
             returner = returner[path]
-        except KeyError, e:
+        except KeyError as e:
             returner = ""
 
         return returner
@@ -753,9 +761,9 @@ class SVN:
                 recurse=recurse
             )
             returner = True
-        except pysvn.ClientError, e:
+        except pysvn.ClientError as e:
             log.exception("pysvn.ClientError exception in svn.py propdel() for %s" % path)
-        except TypeError, e:
+        except TypeError as e:
             log.exception("TypeError exception in svn.py propdel() %s" % path)
 
         return returner
@@ -1015,7 +1023,7 @@ class SVN:
         # Walk back up the tree...
         for tail in tails:
             head = os.path.join(head, tail)
-            self.add(head, depth=pysvn.depth.empty)
+            self.client.add(head, depth=pysvn.depth.empty)
 
     def copy(self, src, dest, revision=Revision("head")):
         """
@@ -1176,7 +1184,7 @@ class SVN:
         returner = []
         for item in log:
             revision = Revision(pysvn.opt_revision_kind.number, item.revision.number)
-            date = datetime.fromtimestamp(item.date)
+            date = datetime.fromtimestamp(item.date) if hasattr(item, "date") else datetime(1900, 1, 1)
             
             author = _("(no author)")
             if hasattr(item, "author"):
@@ -1237,15 +1245,8 @@ class SVN:
         @param  recurse: Whether or not to run a recursive checkout.
 
         """
-        if os.path.exists(dest_path):
-            if os.path.isdir(dest_path):
-                shutil.rmtree(dest_path)
-            else:
-                os.remove(dest_path)
 
-
-
-        return self.client.export(src_url_or_path, dest_path, force,
+        self.client.export(src_url_or_path, dest_path, force,
             revision.primitive(), native_eol, ignore_externals, recurse)
 
     def import_(self, path, url, log_message, ignore=False):

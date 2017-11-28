@@ -42,21 +42,20 @@ should be kept to a minimum. Use convenience methods to condense and summarise
 data wherever possible (this is the case in the actual status cache and checker
 code).
 """
+from __future__ import absolute_import
 
 import os, os.path
 import sys
 import simplejson
+import six
 
-try:
+if "NAUTILUS_PYTHON_REQUIRE_GTK3" in os.environ and os.environ["NAUTILUS_PYTHON_REQUIRE_GTK3"]:
     from gi.repository import GObject as gobject
-except ImportError:
-    import gobject
-    
-try:
     from gi.repository import GLib as glib
-except:
+else:
+    import gobject
     import glib
-
+    
 import dbus
 import dbus.glib # FIXME: this might actually already set the default loop
 import dbus.mainloop.glib
@@ -105,7 +104,7 @@ def decode_status(json_dict):
     if cl in rabbitvcs.vcs.status.STATUS_TYPES:
         st = cl.__new__(cl)
         st.__setstate__(json_dict)
-    elif json_dict.has_key('path'):
+    elif 'path' in json_dict:
         log.warning("Could not deduce status class: %s" % json_dict['__type__'])
         st = rabbitvcs.vcs.status.Status.status_error(json_dict['path'])
     else:
@@ -169,7 +168,7 @@ class StatusCheckerService(dbus.service.Object):
                       summary=False):
         """ Requests a status check from the underlying status checker.
         """
-        status = self.status_checker.check_status(unicode(path),
+        status = self.status_checker.check_status(six.text_type(path),
                                                   recurse=recurse,
                                                   summary=summary,
                                                   invalidate=invalidate)
@@ -180,7 +179,7 @@ class StatusCheckerService(dbus.service.Object):
     def GenerateMenuConditions(self, paths):
         upaths = []
         for path in paths:
-            upaths.append(unicode(path))
+            upaths.append(six.text_type(path))
     
         path_dict = self.status_checker.generate_menu_conditions(upaths)
         return simplejson.dumps(path_dict)
@@ -250,20 +249,18 @@ class StatusCheckerStub:
         self.session_bus = dbus.SessionBus()
         self.decoder = simplejson.JSONDecoder(object_hook=decode_status)
         self.status_checker = None
-        start()
         self._connect_to_checker()
 
     def _connect_to_checker(self):
-
         # Start the status checker, if it's not running this should start it up.
         # Otherwise it leaves it alone.
-        # start()
+        start()
 
         # Try to get a new checker
         try:
             self.status_checker = self.session_bus.get_object(SERVICE,
                                                               OBJECT_PATH)
-        except dbus.DBusException, ex:
+        except dbus.DBusException as ex:
             # There is not much we should do about this...
             log.exception(ex)
 
@@ -278,7 +275,7 @@ class StatusCheckerStub:
         """
         try:
             pid = self.status_checker.CheckVersionOrDie(version)
-        except dbus.DBusException, ex:
+        except dbus.DBusException as ex:
             log.exception(ex)
             self._connect_to_checker()
         else:
@@ -294,7 +291,7 @@ class StatusCheckerStub:
                 try:
                     if not self.status_checker.CheckVersion(version):
                         log.warning("Version mismatch even after restart!")
-                except dbus.DBusException, ex:
+                except dbus.DBusException as ex:
                     log.exception(ex)
                     self._connect_to_checker()
                     
@@ -313,7 +310,7 @@ class StatusCheckerStub:
             status = self.decoder.decode(json_status)
             # Test client error problems :)
             # raise dbus.DBusException("Test")
-        except dbus.DBusException, ex:
+        except dbus.DBusException as ex:
             log.exception(ex)
 
             status = rabbitvcs.vcs.status.Status.status_error(path)
@@ -353,7 +350,7 @@ class StatusCheckerStub:
                                             timeout=TIMEOUT,
                                             reply_handler=reply_handler,
                                             error_handler=error_handler)
-        except dbus.DBusException, ex:
+        except dbus.DBusException as ex:
             log.exception(ex)
             callback(rabbitvcs.vcs.status.Status.status_error(path))
             # Try to reconnect
@@ -399,7 +396,7 @@ class StatusCheckerStub:
                                             timeout=TIMEOUT,
                                             reply_handler=reply_handler,
                                             error_handler=error_handler)
-        except dbus.DBusException, ex:
+        except dbus.DBusException as ex:
             log.exception(ex)
             callback(provider, base_dir, paths, {})
             # Try to reconnect

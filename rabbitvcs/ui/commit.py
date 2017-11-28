@@ -1,3 +1,4 @@
+from __future__ import absolute_import
 #
 # This is an extension to the Nautilus file manager to allow better 
 # integration with the Subversion source control system.
@@ -21,7 +22,7 @@
 #
 
 import os
-import thread
+import six.moves._thread
 
 import pygtk
 import gobject
@@ -44,7 +45,7 @@ log = Log("rabbitvcs.ui.commit")
 from rabbitvcs import gettext
 _ = gettext.gettext
 
-gtk.gdk.threads_init()
+gobject.threads_init()
 
 class Commit(InterfaceView, GtkContextMenuCaller):
     """
@@ -70,6 +71,7 @@ class Commit(InterfaceView, GtkContextMenuCaller):
         """
         InterfaceView.__init__(self, "commit", "Commit")
 
+        self.isInitDone = False
         self.base_dir = base_dir
         self.vcs = rabbitvcs.vcs.VCS()
         self.items = []
@@ -100,7 +102,7 @@ class Commit(InterfaceView, GtkContextMenuCaller):
             }
         )
         self.files_table.allow_multiple()
-        self.get_widget("toggle_show_unversioned").set_active(not self.SHOW_UNVERSIONED)
+        self.get_widget("toggle_show_unversioned").set_active(self.SHOW_UNVERSIONED)
         self.message = rabbitvcs.ui.widget.TextView(
             self.get_widget("message"),
             (message and message or "")
@@ -110,6 +112,8 @@ class Commit(InterfaceView, GtkContextMenuCaller):
         for path in paths:
             if self.vcs.is_in_a_or_a_working_copy(path):
                 self.paths.append(path)
+
+        self.isInitDone = True
 
     #
     # Helper functions
@@ -163,8 +167,8 @@ class Commit(InterfaceView, GtkContextMenuCaller):
         """
         
         try:
-            thread.start_new_thread(self.load, ())
-        except Exception, e:
+            six.moves._thread.start_new_thread(self.load, ())
+        except Exception as e:
             log.exception(e)
 
     def show_files_table_popup_menu(self, treeview, data):
@@ -200,9 +204,9 @@ class Commit(InterfaceView, GtkContextMenuCaller):
             self.changes[row[1]] = self.TOGGLE_ALL
             
     def on_toggle_show_unversioned_toggled(self, widget, data=None):
-
-        self.SHOW_UNVERSIONED = not self.SHOW_UNVERSIONED
-        
+        if self.isInitDone:
+            self.SHOW_UNVERSIONED = not self.SHOW_UNVERSIONED
+            
         self.populate_files_table()
 
         # Save this preference for future commits.
@@ -297,7 +301,7 @@ class SVNCommit(Commit):
                 elif status == rabbitvcs.vcs.status.status_missing:
                     self.vcs.svn().update(item)
                     self.vcs.svn().remove(item)
-            except Exception, e:
+            except Exception as e:
                 log.exception(e)
 
         ticks = added + len(items)*2
@@ -333,6 +337,16 @@ class GitCommit(Commit):
 
         self.git = self.vcs.git(paths[0])
 
+        self.get_widget("commit_to_box").show()
+        
+        active_branch = self.git.get_active_branch()
+        if active_branch:
+            self.get_widget("to").set_text(
+                active_branch.name
+            )
+        else:
+            self.get_widget("to").set_text("No active branch")
+
         self.items = None
         if len(self.paths):
             self.initialize_items()
@@ -355,7 +369,7 @@ class GitCommit(Commit):
                 else:
                     self.git.stage(item)
                     staged += 1
-            except Exception, e:
+            except Exception as e:
                 log.exception(e)
 
         ticks = staged + len(items)*2
@@ -418,7 +432,7 @@ class MercurialCommit(Commit):
                 else:
                     self.mercurial.add(item)
                     staged += 1
-            except Exception, e:
+            except Exception as e:
                 log.exception(e)
 
         ticks = staged + len(items)*2

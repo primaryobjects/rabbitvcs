@@ -1,3 +1,6 @@
+from __future__ import absolute_import
+import six
+from six.moves import range
 #
 # This is an extension to the Nautilus file manager to allow better 
 # integration with the Subversion source control system.
@@ -282,19 +285,22 @@ class TableBase:
         
         """
         
-        from renderers.graphcell import CellRendererGraph
+        from .renderers.graphcell import CellRendererGraph
 
-        if not flags.has_key("sortable"):
+        if "sortable" not in flags:
             flags["sortable"] = False
-        if not flags.has_key("sort_on"):
+        if "sort_on" not in flags:
             flags["sort_on"] = -1
-        if not flags.has_key("editable"):
+        if "editable" not in flags:
             flags["editable"] = ()
     
         self.treeview = treeview
         self.selected_rows = []
 
-        i = 0       
+        # When True, will cause update_selection to reapply the existing content of selected_rows,
+        #   rather than the other way around, then set it to False again.
+        self._reassert_selection = False
+        i = 0
         for name in colnames:
             if coltypes[i] == gobject.TYPE_BOOLEAN:
                 cell = gtk.CellRendererToggle()
@@ -323,7 +329,7 @@ class TableBase:
                 cellpb.set_property('yalign', 0)
                 col.pack_start(cellpb, False)
                 data = None
-                if callbacks.has_key("file-column-callback"):
+                if "file-column-callback" in callbacks:
                     data = {
                         "callback": callbacks["file-column-callback"],
                         "column": i
@@ -453,9 +459,25 @@ class TableBase:
         self.treeview.connect("button-release-event", self.__button_release_event)
         self.treeview.connect("key-press-event", self.__key_press_event)
         self.treeview.connect("select-cursor-row", self.__row_selected)
+        # Necessary for self.selected_rows to remain sane
+        self.treeview.connect("select-all", self.__all_selected)
+        self.treeview.connect("unselect-all", self.__all_unselected)
+
         self.callbacks = callbacks
         if self.callbacks:
             self.allow_multiple()
+
+    def _sortedpath(self, real_path):
+        """
+        Converts a model index (as stored in selected_rows) into a user selection
+        path
+        """
+        if self.sorted:
+            path = self.sorted.convert_child_path_to_path(real_path)
+        else:
+            path = self.filter.convert_child_path_to_path(real_path)
+        return path
+
 
     def _realpath(self, visible_path):
         """
@@ -473,10 +495,20 @@ class TableBase:
     def toggled_cb(self, cell, path, column):
         model = self.data
         realpath = self._realpath(path)
+        # User has clicked a checkbox on a selected item.
+        toggleMulti = realpath[0] in self.selected_rows and len(self.selected_rows) > 1
         model[realpath][column] = not model[realpath][column]
         if "row-toggled" in self.callbacks:
             self.callbacks["row-toggled"](model[realpath], column)
 
+        # Set the state of _all_ selected items to match the new state of the checkbox
+        if toggleMulti:
+            sel = self.treeview.get_selection()
+            for selPath in self.selected_rows:
+                model[selPath][column] = model[realpath][column]
+                if "row-toggled" in self.callbacks:
+                    self.callbacks["row-toggled"](model[selPath], column)
+            self._reassert_selection = True
 
     def append(self, row):
         self.data.append(row)
@@ -550,12 +582,23 @@ class TableBase:
 
     def update_selection(self):
         selection = self.treeview.get_selection()
-        (liststore, indexes) = selection.get_selected_rows()
+        # Will be set if a checkmark is changed while multiple rows
+        # selected; user retains their selection after using
+        # the new multicheck feature.
+        if not self._reassert_selection:
+            (liststore, indexes) = selection.get_selected_rows()
 
-        self.reset_selection()
-        
-        for tup in indexes:
-            self.selected_rows.append(self._realpath(tup)[0])
+            self.reset_selection()
+
+            for tup in indexes:
+                self.selected_rows.append(self._realpath(tup)[0])
+
+        else:
+            self._reassert_selection = False
+
+            for tup in self.selected_rows:
+                path = self._sortedpath(tup);
+                selection.select_range(path, path)
 
     def reset_selection(self):
         self.selected_rows = []
@@ -575,7 +618,7 @@ class TableBase:
         for row in self.data:
             line = []
             for cell in row:
-                line.append(unicode(cell))
+                line.append(six.text_type(cell))
             lines.append("\t".join(line))
         
         return "\n".join(lines)
@@ -620,6 +663,20 @@ class TableBase:
         self.update_selection()
         if "row-selected" in self.callbacks:
             self.callbacks["row-selected"](treeview, started_editing)
+
+    # Without these in place, Ctrl+A / Shift+Ctrl+A were not updating
+    # self.selected_rows
+    def __all_selected(self, treeview):
+        treeview.get_selection().select_all()
+        self.update_selection()
+        if "all-selected" in self.callbacks:
+            self.callbacks["all-selected"](treeview, started_editing)
+
+    def __all_unselected(self, treeview):
+        treeview.get_selection().unselect_all()
+        self.update_selection()
+        if "all-unselected" in self.callbacks:
+            self.callbacks["all-unselected"](treeview, started_editing)
         
     def __key_press_event(self, treeview, data):
         self.update_selection()
@@ -654,7 +711,7 @@ class TableBase:
         
         status = self.data[real_path][colnum]
         
-        if status not in STATUS_EMBLEMS.keys():
+        if status not in list(STATUS_EMBLEMS.keys()):
             status = "error"
              
         icon = "emblem-" + STATUS_EMBLEMS[status]
@@ -796,7 +853,7 @@ class TextView:
         if HAS_GTKSPELL and spellcheck:
             try:
                 gtkspell.Spell(self.view)
-            except Exception, e:
+            except Exception as e:
                 log.exception(e)
         
     def get_text(self):
@@ -1206,12 +1263,16 @@ class GitRepositorySelector:
         self.__update_host()
     
     def __update_host(self):
-        repo = "origin"
-        self.host.set_text(self.git.config.get('remote "%s"' % repo, "url"))
+        repo = self.repository_opt.get_active_text()
+        try:
+            self.host.set_text(self.git.config.get(("remote", repo), "url"))
+        except KeyError as e:
+            log.error("Missing remote %s config key" % repo)
     
     def __repository_changed(self, repository_opt):
         if self.changed_callback:
             self.changed_callback(repository_opt.get_active_text(), self.branch_opt.get_active_text())
+        self.__update_host()
    
     def __branch_changed(self, branch_opt):
         if self.changed_callback:
